@@ -13,6 +13,12 @@ extensions.
 
 The package is at an early stage and its interface may still change.
 
+HALQCD.jl currently runs on CPUs in a single Julia process, with threads. The
+fields of the JuliaQCD v1 packages (LatticeMatrices.jl MPILattice) are
+accepted only on one process, and the extension copies the propagators into
+host arrays for the contractions. GPU backends of JACC and MPI have not been
+tested.
+
 ## Installation
 
 ```julia
