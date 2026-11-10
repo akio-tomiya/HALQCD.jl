@@ -8,7 +8,6 @@ include("NBSDatasets.jl")
 include("NBSDiskIO.jl")
 include("Potentials.jl")
 include("Projections.jl")
-include("MagneticFields.jl")
 include("Resampling.jl")
 include("ReferenceData.jl")
 include("WilsonBaselines.jl")
@@ -43,9 +42,6 @@ export write_nbs_dataset, read_nbs_dataset
 export PotentialResult, lo_potential_equal_mass
 export divided_potential_components
 export a1plus_project, a1plus_project!, shell_average
-export flux_qBa2, flux_eBa2, uniform_u1_links, u1_plaquette_xy
-export apply_u1_links, apply_u1_links!, apply_u1_phase
-export covariant_laplacian_periodic, covariant_laplacian_periodic!
 export jackknife_estimates, jackknife_summary
 export JackknifePotentialResult, lo_potential_from_jackknife_equal_mass
 export load_hal_pot_rcorr, load_hal_pot_table

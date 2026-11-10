@@ -66,9 +66,7 @@ Lattice tools, for any SU(N):
   traceful projection F_μν = (Q_μν − Q_μν†)/8 of Bridge++ and
   LatticeMatrices.jl; pion correlators agree with Bridge++ 2.1.3 to 10⁻¹² on
   SU(2), SU(3) and SU(4) configurations (`scripts/bridge_clover_compare.jl`);
-- free Wilson propagators in momentum space for tests;
-- uniform background U(1) links (`uniform_u1_links`) and their product with
-  color links (`apply_u1_phase`).
+- free Wilson propagators in momentum space for tests.
 
 JuliaQCD extensions:
 
@@ -157,7 +155,6 @@ method of the paper.
 
 - scalar field: `(x, y, z)`
 - R-correlator bins: `(x, y, z, bin)`
-- U(1) links: `(mu, x, y, z, t)`
 - color links: `(color_out, color_in, mu, x, y, z, t)`; the color axes have
   the dimension of the representation (N for SU(N))
 - `mu=1,2,3,4` is `x,y,z,t`

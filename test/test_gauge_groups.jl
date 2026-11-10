@@ -224,13 +224,3 @@ end
         color_invariant=baryon_invariant(SU{2}()),
     )
 end
-
-@testset "group-aware U(1) phase" begin
-    links = uniform_u1_links((4, 4, 2, 2), 1; charge_ratio=-1)
-    su3 = zeros(ComplexF64, 3, 3, size(links)...)
-    for index in CartesianIndices(size(links))
-        su3[:, :, index] = Matrix{ComplexF64}(I, 3, 3)
-    end
-    @test apply_u1_phase(SU{3}(), su3, links) == apply_u1_links(su3, links)
-    @test_throws DimensionMismatch apply_u1_phase(SU{2}(), su3, links)
-end
