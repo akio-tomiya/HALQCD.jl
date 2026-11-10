@@ -1,4 +1,4 @@
-# HALQCD.jl
+<h1 align="center"><img src="docs/src/assets/logo.svg" alt="HALQCD.jl" width="420"></h1>
 
 HALQCD.jl is a Julia package for the time-dependent HAL QCD method. It builds
 Nambu–Bethe–Salpeter (NBS) correlation functions from quark propagators,
