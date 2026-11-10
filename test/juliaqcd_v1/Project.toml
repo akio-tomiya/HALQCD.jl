@@ -1,0 +1,18 @@
+[deps]
+Gaugefields = "a461e10c-0d91-493e-bc41-027b226eee91"
+HALQCD = "67a6fa53-3b52-4a93-96cb-05f416bed6c5"
+JACC = "0979c8fe-16a4-4796-9b82-89a9f10403ea"
+LatticeDiracOperators = "019239df-b0e3-486e-8e4c-d1c29ee5d6b9"
+LatticeMatrices = "dd6a91e4-736f-4540-ac85-13822ca7b545"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+HALQCD = {path = "../.."}
+
+[compat]
+Gaugefields = "1.1.11"
+JACC = "1.4"
+LatticeDiracOperators = "1.1.4"
+LatticeMatrices = "1.2.9"
+julia = "1.11"

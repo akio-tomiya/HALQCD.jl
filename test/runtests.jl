@@ -1,0 +1,23 @@
+using Test
+using HALQCD
+
+include("test_derivatives.jl")
+include("test_correlators.jl")
+include("test_nbs_datasets.jl")
+include("test_nbs_disk_io.jl")
+include("test_potential.jl")
+include("test_spatial_analysis_cli.jl")
+include("test_source_comparison_cli.jl")
+include("test_volume_comparison_cli.jl")
+include("test_projections.jl")
+include("test_magnetic_flux.jl")
+include("test_resampling.jl")
+include("test_reference_data.jl")
+include("test_scattering.jl")
+include("test_luscher.jl")
+include("test_hadron_contractions.jl")
+include("test_two_baryon_contractions.jl")
+include("test_gauge_groups.jl")
+include("test_juliaqcd_interface.jl")
+include("test_meson_contractions.jl")
+include("test_wilson_clover.jl")

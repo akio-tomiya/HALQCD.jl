@@ -1,0 +1,13 @@
+Manifest.toml
+reference/
+results/
+reports/generated/
+tmp/
+*.jld2
+*.h5
+*.hdf5
+*.dat
+*.dvi
+*.out
+*.err
+.DS_Store

@@ -1,0 +1,44 @@
+axis_order = ["x", "y", "z", "time", "source", "sample"]
+dataset_schema_version = "1.0.0"
+format = "HALQCD.NBSCorrelatorDataset"
+format_version = "1.0.0"
+one_hadron_axis_order = ["time", "source", "sample"]
+sample_kind = "raw_configuration"
+
+[arrays.four_point]
+eltype = "ComplexF32"
+endianness = "little"
+file = "four_point.bin"
+sha256 = "9c5c25d77be356f504093d4f12ef63b273c0bc9948feebd966d5877cdc552159"
+shape = [2, 1, 1, 2, 1, 2]
+storage_order = "julia-column-major"
+
+[arrays.one_hadron_1]
+eltype = "Float32"
+endianness = "little"
+file = "one_hadron_1.bin"
+sha256 = "feb5c782c5f6bef7d923c3284cdeeb721337237c2386d21da6d07dfdd330d053"
+shape = [2, 1, 2]
+storage_order = "julia-column-major"
+
+[arrays.one_hadron_2]
+eltype = "Float64"
+endianness = "little"
+file = "one_hadron_2.bin"
+sha256 = "397654d1b42cb0dbd341a716a76942cda475bcadbb328e033237d54bb227bc4e"
+shape = [2, 1, 2]
+storage_order = "julia-column-major"
+
+[metadata]
+channel = "XiXi"
+code_commit = "format-v1-reference"
+generator = "scripts/generate_nbs_v1_fixture.jl"
+lattice_shape = [2, 1, 1, 2]
+lattice_spacing = [0.1, 0.1, 0.1, 0.2]
+magnetic_flux = 0
+sample_ids = ["reference-configuration-1", "reference-configuration-2"]
+sink_operator = "local-Xi"
+source_ids = ["reference-source-1"]
+source_operator = "local-Xi"
+spin = "singlet"
+temporal_boundary_condition = "antiperiodic-quark"
