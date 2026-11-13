@@ -143,8 +143,14 @@ end
     @test maximum(abs.(dirichlet.data .- periodic_cut.data)) / maximum(abs.(dirichlet.data)) < 1e-9
     antiperiodic = wilson_clover_point_propagator(SU{2}(), links; kappa, csw=0.0, source_position=source)
     @test maximum(abs.(dirichlet.data .- antiperiodic.data)) > 1e-4
-    @test_throws ArgumentError wilson_clover_point_propagator(SU{2}(), links; kappa, csw=1.0,
-        boundary_condition=(1, 1, 1, 0))
+    # With clover the wall cuts the hops only: F_μν still uses the plaquettes across
+    # the wall, so the result differs from the periodic operator on the cut links.
+    clover = wilson_clover_point_propagator(SU{2}(), links; kappa, csw=1.0,
+        boundary_condition=(1, 1, 1, 0), source_position=source)
+    @test maximum(clover.true_residuals) < 1e-10
+    clover_cut = wilson_clover_point_propagator(SU{2}(), cut; kappa, csw=1.0,
+        boundary_condition=(1, 1, 1, 1), source_position=source)
+    @test maximum(abs.(clover.data .- clover_cut.data)) / maximum(abs.(clover.data)) > 1e-6
     @test_throws ArgumentError wilson_clover_point_propagator(SU{2}(), links; kappa, csw=0.0,
         boundary_condition=(1, 1, 1, 2))
 end

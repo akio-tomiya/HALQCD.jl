@@ -46,10 +46,11 @@ path (`Gaugefields.gauge_configuration`, on one process). For an MPILattice fiel
 the boundary phases are set on the fermion field, because its Dirac operator
 ignores the parameter, and the clover operator is the LatticeMatrices.jl one with
 the standard sign and F_μν = (Q − Q†)/8 like [`wilson_clover_point_propagator`](@ref).
-LatticeMatrices.jl rejects the phase 0, so a temporal Dirichlet wall is made on a
-copy of the links by zeroing the links U_4(x, t=NT) that cross the time boundary.
-The hopping term is then the same wall; the clover term differs from a phase-0
-wall on the two time slices next to it. `method_CG` picks the LatticeDiracOperators.jl
+A temporal Dirichlet wall (`BoundaryCondition[4] = 0`) is the boundary phase 0 of
+LatticeMatrices.jl, which needs LatticeMatrices.jl 1.2.10 and
+LatticeDiracOperators.jl 1.1.5 or later: it cuts the hops across the wall and
+leaves the links, so the clover term is built from the links as given, as in
+[`wilson_clover_point_propagator`](@ref). `method_CG` picks the LatticeDiracOperators.jl
 solver (`"bicg"` by default, or `"bicgstab"`, which is much faster here; the
 even-odd `"preconditiond_bicgstab"` does not run in LatticeDiracOperators
 0.6.3). `source_smearing=(alpha=, steps=)` replaces the point by

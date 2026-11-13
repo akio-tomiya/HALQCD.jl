@@ -24,18 +24,6 @@ const HEX = HEXSmearing(; alpha_outer=0.95, alpha_middle=0.76, alpha_inner=0.38,
 
 relative_difference(a, b) = maximum(abs, a .- b) / maximum(abs, b)
 
-# The links that cross the time boundary set to zero, as the extension does for
-# BoundaryCondition[4] = 0.
-function zeroed_time_boundary(V)
-    W = copy_configuration(V)
-    f = W[4].U
-    nw = f.nw
-    view(f.A, :, :, (nw+1):(nw+f.PN[1]), (nw+1):(nw+f.PN[2]), (nw+1):(nw+f.PN[3]), nw + f.PN[4]) .= 0
-    Gaugefields.LatticeMatricesCompat.mark_lattice_dirty!(f)
-    Gaugefields.set_wing_U!(W[4])
-    return W
-end
-
 @testset "JuliaQCD v1 extension" begin
     U = gauge_configuration(SHAPE; colors=3, start=:hot, seed=1, process_grid=(1, 1, 1, 1))
     @test gauge_group(U) == SU{3}()
@@ -56,22 +44,17 @@ end
         @test relative_difference(S.data, reference.data) < 1e-9
     end
 
-    @testset "Dirichlet wall" begin
+    @testset "Dirichlet wall, $fermiontype" for (fermiontype, csw) in (("Wilson", nothing), ("WilsonClover", CSW))
+        # The boundary phase 0 of LatticeMatrices.jl cuts the hops only, and the
+        # reference builds the clover term from the same links.
         source = (1, 1, 1, 4)
-        # Wilson: the zeroed boundary links give exactly the phase-0 wall.
-        S = juliaqcd_point_propagator(V; κ=KAPPA, BoundaryCondition=[1, 1, 1, 0], eps_CG=1e-24,
-            method_CG="bicgstab", source_position=source)
-        phase0 = wilson_clover_point_propagator(gauge_group(V), juliaqcd_links(V); kappa=KAPPA, csw=0.0,
-            boundary_condition=(1, 1, 1, 0), source_position=source, gammas=GAMMAS, tolerance=1e-12)
+        S = juliaqcd_point_propagator(V; κ=KAPPA, fermiontype, cSW=csw, BoundaryCondition=[1, 1, 1, 0],
+            eps_CG=1e-24, method_CG="bicgstab", source_position=source)
+        @test S.metadata["maximum_external_residual"] < 1e-10
+        phase0 = wilson_clover_point_propagator(gauge_group(V), juliaqcd_links(V); kappa=KAPPA,
+            csw=isnothing(csw) ? 0.0 : csw, boundary_condition=(1, 1, 1, 0), source_position=source,
+            gammas=GAMMAS, tolerance=1e-12)
         @test relative_difference(S.data, phase0.data) < 1e-9
-        # Clover: compared on the same zeroed links (the clover term differs from a
-        # phase-0 wall on the two time slices next to it).
-        S = juliaqcd_point_propagator(V; κ=KAPPA, fermiontype="WilsonClover", cSW=CSW,
-            BoundaryCondition=[1, 1, 1, 0], eps_CG=1e-24, method_CG="bicgstab", source_position=source)
-        W = zeroed_time_boundary(V)
-        same = wilson_clover_point_propagator(gauge_group(W), juliaqcd_links(W); kappa=KAPPA, csw=CSW,
-            boundary_condition=(1, 1, 1, 1), source_position=source, gammas=GAMMAS, tolerance=1e-12)
-        @test relative_difference(S.data, same.data) < 1e-9
     end
 
     @testset "wall source NBS dataset in Coulomb gauge" begin

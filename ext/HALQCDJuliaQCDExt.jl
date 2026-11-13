@@ -43,20 +43,21 @@ end
 
 _core(x) = view(x.f.A, :, :, ntuple(d -> (x.f.nw+1):(x.f.nw+x.f.PN[d]), 4)...)
 
-# LatticeMatrices.jl rejects the boundary phase 0 (it divides by the phase for
-# backward wraps). For MPILattice links a temporal Dirichlet wall is therefore made
-# on a copy of the links by zeroing U_4(x, t=NT), the links that cross the time
-# boundary, and solving with phase 1. The hopping term is then exactly the phase-0
-# wall; the clover term differs from a phase-0 implementation on the two time
-# slices next to the wall.
-function _dirichlet_time_links(U)
-    W = copy_configuration(U)
-    f = W[4].U
-    nw = f.nw
-    view(f.A, :, :, (nw+1):(nw+f.PN[1]), (nw+1):(nw+f.PN[2]), (nw+1):(nw+f.PN[3]), nw + f.PN[4]) .= 0
-    Gaugefields.LatticeMatricesCompat.mark_lattice_dirty!(f)
-    Gaugefields.set_wing_U!(W[4])
-    return W
+# The boundary phase 0 on MPILattice fields (a Dirichlet wall that cuts the hops
+# and leaves the links, so the clover term is built from the links as given) needs
+# LatticeMatrices.jl 1.2.10 and LatticeDiracOperators.jl 1.1.5. Older versions
+# reject the phase 0 or divide by it.
+const _LATTICEMATRICES = Base.PkgId(Base.UUID("dd6a91e4-736f-4540-ac85-13822ca7b545"), "LatticeMatrices")
+
+function _check_zero_phase_support()
+    ldo = pkgversion(LatticeDiracOperators)
+    lm_module = get(Base.loaded_modules, _LATTICEMATRICES, nothing)
+    lm = isnothing(lm_module) ? nothing : pkgversion(lm_module)
+    (isnothing(ldo) || ldo >= v"1.1.5") && (isnothing(lm) || lm >= v"1.2.10") ||
+        throw(ArgumentError("a Dirichlet (0) boundary on MPILattice fields needs " *
+            "LatticeDiracOperators 1.1.5 and LatticeMatrices 1.2.10 or later " *
+            "(found $(something(ldo, "unknown")) and $(something(lm, "unknown")))"))
+    return nothing
 end
 
 # Field contents as an array with axes (color, spin, x, y, z, t).
@@ -133,20 +134,16 @@ function HALQCD.juliaqcd_point_propagator(
     isnothing(cSW) || (parameters["cSW"] = cSW)
 
     mpi = _mpilattice(U)
-    operator_links, field_boundary = U, BoundaryCondition
     if mpi && any(iszero, BoundaryCondition)
         all(!iszero, BoundaryCondition[1:3]) || throw(ArgumentError(
             "for MPILattice links only the time direction can have a Dirichlet (0) boundary"))
-        operator_links = _dirichlet_time_links(U)
-        field_boundary = [BoundaryCondition[1:3]; 1]
-        # The operator checks that this parameter equals the phases of the field.
-        parameters["boundarycondition"] = field_boundary
-        parameters["dirichlet_implementation"] = "zeroed U_4(x, t=NT) links, phase 1"
+        _check_zero_phase_support()
+        parameters["dirichlet_implementation"] = "boundary phase 0 (hops cut, clover from the unchanged links)"
     end
-    source = _wilson_field(operator_links, field_boundary, mpi)
+    source = _wilson_field(U, BoundaryCondition, mpi)
     solution = similar(source)
     applied = similar(source)
-    D = Dirac_operator(operator_links, source, parameters)
+    D = Dirac_operator(U, source, parameters)
     nspin = 4
     dims = (nx, ny, nz, nt)
     data = zeros(ComplexF64, NC, nspin, NC, nspin, nx, ny, nz, nt)

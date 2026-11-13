@@ -36,6 +36,13 @@
 # on the thin links, applies 2HEX, solves the wall source at t = T/2 + 1 with the
 # Dirichlet wall between t = T and 1 (on the links shifted by each of
 # KURTH_SOURCE_SHIFTS), and writes the I=2 NBS dataset to nbs/, one source per shift.
+#
+# The wall is the boundary phase 0 of LatticeMatrices.jl (hops cut, clover term from
+# the unchanged links). The production of the README comparison used an earlier
+# wall that zeroed the links U_4(x, t=T) and so also removed the clover plaquettes
+# across it. scripts/dirichlet_clover_wall_compare.jl puts the difference at 0.2%
+# of C(t) next to the wall and below 1e-5 four or more slices away (4³×16, random
+# links); the analyzed times are more than 40 slices from the wall.
 # Several measure workers may run side by side (locks as in stage 6).
 import JACC
 JACC.@init_backend

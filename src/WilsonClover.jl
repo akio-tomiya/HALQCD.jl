@@ -68,9 +68,8 @@ function _WilsonCloverOperator(group, links; kappa, csw, r, boundary_condition, 
         throw(DimensionMismatch("gammas must be four 4×4 matrices"))
     all(in((1, -1, 0)), boundary_condition) ||
         throw(ArgumentError("boundary_condition entries must be 1, -1 or 0"))
-    # The clover term would still use plaquettes across a Dirichlet wall.
-    iszero(csw) || all(!iszero, boundary_condition) ||
-        throw(ArgumentError("a Dirichlet boundary (0) is only supported with csw = 0"))
+    # A Dirichlet wall (0) cuts the hops only; the clover term is built from the
+    # links as given, as for the phase 0 of LatticeMatrices.jl.
     γ = Tuple(Matrix{ComplexF64}(gamma) for gamma in gammas)
     identity4 = Matrix{ComplexF64}(I, 4, 4)
     field_strength = zeros(ComplexF64, ncolor, ncolor, 6, shape...)
@@ -284,8 +283,10 @@ opposite sign and a traceless `F_μν`, so its `cSW` corresponds to `csw = -cSW`
 here only for `SU(2)`; with the sign fix proposed for its PR #80, `csw = cSW`
 for `SU(2)`. `boundary_condition` multiplies hops that wrap around the
 lattice, as `boundarycondition` does in LatticeDiracOperators.jl: `1` periodic,
-`-1` antiperiodic, `0` a Dirichlet wall between the last and the first slice
-(only with `csw = 0`). `source_smearing=(alpha=α, steps=n)` replaces the point
+`-1` antiperiodic, `0` a Dirichlet wall between the last and the first slice.
+The wall cuts the hops only; `F_μν` is built from the links as given, including
+the plaquettes across the wall, as with the phase 0 of LatticeMatrices.jl
+(1.2.10 and later). `source_smearing=(alpha=α, steps=n)` replaces the point
 source by its [`wuppertal_smear`](@ref) with the same links; the sink stays a
 point. Each of the `4 Nc` columns is solved to the relative residual
 `tolerance` with CG on the normal equations (`solver=:cgnr`, using

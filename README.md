@@ -133,7 +133,11 @@ the time direction half the lattice away from the source. We used κ=0.1220, 99
 configurations and four sources per configuration. Gauge generation, gauge
 fixing, smearing and the solver are those of the JuliaQCD v1 packages; the
 driver is `scripts/kurth_pipi_production.jl` and the analysis is
-`scripts/analyze_stage6_pipi.jl`. Errors are from the jackknife.
+`scripts/analyze_stage6_pipi.jl`. Errors are from the jackknife. The production
+made the Dirichlet wall by zeroing the temporal links across it, which also
+removes the clover plaquettes there; the package now uses the boundary phase 0
+of LatticeMatrices.jl, which keeps them. The two walls differ only near the
+wall, more than 40 time slices away from the times analyzed here.
 
 | quantity | HALQCD.jl | paper |
 |---|---|---|

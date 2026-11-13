@@ -13,6 +13,6 @@ HALQCD = {path = "../.."}
 [compat]
 Gaugefields = "1.1.11"
 JACC = "1.4"
-LatticeDiracOperators = "1.1.4"
-LatticeMatrices = "1.2.9"
+LatticeDiracOperators = "1.1.5"
+LatticeMatrices = "1.2.10"
 julia = "1.11"
