@@ -10,6 +10,14 @@ HALQCD.gauge_group(U::AbstractVector{<:AbstractGaugefields{NC,4}}) where {NC} = 
 function HALQCD.juliaqcd_links(U::AbstractVector{<:AbstractGaugefields{NC,4}}) where {NC}
     length(U) == 4 || throw(DimensionMismatch("expected the four link fields"))
     links = zeros(ComplexF64, NC, NC, 4, U[1].NX, U[1].NY, U[1].NZ, U[1].NT)
+    if _mpilattice(U) && _layout(U, true).nprocs > 1
+        # Collective: every process receives the whole lattice
+        # (LatticeMatrices.gather_and_bcast_matrix).
+        for μ in 1:4
+            links[:, :, μ, :, :, :, :] .= _latticematrices().gather_and_bcast_matrix(U[μ].U)
+        end
+        return links
+    end
     for μ in 1:4, t in 1:U[1].NT, z in 1:U[1].NZ, y in 1:U[1].NY, x in 1:U[1].NX,
         b in 1:NC, a in 1:NC
         links[a, b, μ, x, y, z, t] = U[μ][a, b, x, y, z, t]
@@ -27,18 +35,58 @@ end
 _mpilattice(U) = isdefined(Gaugefields, :Gaugefields_4D_MPILattice) &&
     U[1] isa Gaugefields.Gaugefields_4D_MPILattice
 
+_latticematrices() = Base.loaded_modules[_LATTICEMATRICES]
+
+# How the links `U` are split over MPI processes, in the terms of
+# LatticeMatrices.jl: the process grid (get_PEs), the Cartesian coordinates of
+# this process, the local block size, the first global site of the block
+# (global_site_coordinates), and the communicator of Gaugefields.jl. Any process
+# grid that Gaugefields.gauge_configuration accepts, including :auto, is used as
+# given for the solves. The contractions need whole spatial slices, so the
+# solutions are regrouped into time slices (`times`) after each solve.
+function _layout(U, mpi::Bool)
+    shape = (U[1].NX, U[1].NY, U[1].NZ, U[1].NT)
+    serial = (nprocs=1, comm=nothing, root=true, dims=(1, 1, 1, 1), coords=(0, 0, 0, 0),
+        local_size=shape, start=(1, 1, 1, 1), shape=shape, times=collect(1:shape[4]))
+    mpi || return serial
+    lattice = U[1].U
+    LM = _latticematrices()
+    dims = Tuple(LM.get_PEs(lattice))
+    prod(dims) == 1 && return serial
+    local_size = Tuple(lattice.PN)
+    coords = Tuple(lattice.coords)
+    comm = isdefined(Gaugefields, :gauge_communicator) ?
+        something(Gaugefields.gauge_communicator(U), lattice.comm) : lattice.comm
+    return (nprocs=prod(dims), comm=comm, root=lattice.myrank == 0, dims=dims,
+        coords=coords, local_size=local_size,
+        start=Tuple(LM.global_site_coordinates(lattice, (1, 1, 1, 1))), shape=shape,
+        times=HALQCD._assigned_times(coords, dims, local_size))
+end
+
+# Global ranges of the local block.
+_block_ranges(layout) = ntuple(d -> layout.start[d] .+ (0:(layout.local_size[d] - 1)), 4)
+
+function _sum_over_processes!(layout, values::AbstractArray)
+    layout.nprocs == 1 && return values
+    return HALQCD._sum_over_processes!(layout.comm, values)
+end
+
+# Whole spatial slices at layout.times from the local blocks of all processes.
+function _time_slices(layout, block::AbstractArray)
+    layout.nprocs == 1 && return block
+    return HALQCD._time_slices(layout.comm, block, layout.coords, layout.dims, layout.shape)
+end
+
+_sum_over_processes(layout, value::Real) = _sum_over_processes!(layout, [Float64(value)])[1]
+
 # Wilson fermion field for the solves. An MPILattice field carries its boundary
 # phases itself, and its Dirac operator ignores the "boundarycondition" parameter,
-# so the phases are set here. HALQCD.jl reads and writes the whole lattice, so
-# only one process is supported.
+# so the phases are set here.
 function _wilson_field(U, boundary, mpi::Bool)
     mpi || return Initialize_pseudofermion_fields(U[1], "Wilson"; nowing=true)
     # Initialize_WilsonFermion asserts nowing == true for MPILattice links (its
     # message says "should be false").
-    x = LatticeDiracOperators.Initialize_WilsonFermion(U[1]; nowing=true, boundarycondition=collect(boundary))
-    Tuple(x.f.PN) == (U[1].NX, U[1].NY, U[1].NZ, U[1].NT) || throw(ArgumentError(
-        "HALQCD.jl supports MPILattice fields on a single process (process_grid=(1, 1, 1, 1))"))
-    return x
+    return LatticeDiracOperators.Initialize_WilsonFermion(U[1]; nowing=true, boundarycondition=collect(boundary))
 end
 
 _core(x) = view(x.f.A, :, :, ntuple(d -> (x.f.nw+1):(x.f.nw+x.f.PN[d]), 4)...)
@@ -60,7 +108,8 @@ function _check_zero_phase_support()
     return nothing
 end
 
-# Field contents as an array with axes (color, spin, x, y, z, t).
+# Field contents as an array with axes (color, spin, x, y, z, t). For an
+# MPILattice field these are the time slices of this process.
 function _field_array(x, mpi::Bool, NC, (nx, ny, nz, nt))
     mpi && return Array(_core(x))
     return [x[c, ix, iy, iz, it, s] for c in 1:NC, s in 1:4, ix in 1:nx, iy in 1:ny, iz in 1:nz, it in 1:nt]
@@ -109,6 +158,10 @@ function HALQCD.juliaqcd_point_propagator(
     nx, ny, nz, nt = U[1].NX, U[1].NY, U[1].NZ, U[1].NT
     all(1 .<= source_position .<= (nx, ny, nz, nt)) ||
         throw(BoundsError((nx, ny, nz, nt), source_position))
+    mpi = _mpilattice(U)
+    layout = _layout(U, mpi)
+    times = layout.times
+    ranges = _block_ranges(layout)
 
     # In LatticeDiracOperators 0.6.3 the even-odd solver fails for every Wilson
     # field: clear_fermion!(::WilsonFermion_4D_nowing, iseven) does not parse as
@@ -133,7 +186,6 @@ function HALQCD.juliaqcd_point_propagator(
     isnothing(method_CG) || (parameters["method_CG"] = method_CG)
     isnothing(cSW) || (parameters["cSW"] = cSW)
 
-    mpi = _mpilattice(U)
     if mpi && any(iszero, BoundaryCondition)
         all(!iszero, BoundaryCondition[1:3]) || throw(ArgumentError(
             "for MPILattice links only the time direction can have a Dirichlet (0) boundary"))
@@ -146,7 +198,8 @@ function HALQCD.juliaqcd_point_propagator(
     D = Dirac_operator(U, source, parameters)
     nspin = 4
     dims = (nx, ny, nz, nt)
-    data = zeros(ComplexF64, NC, nspin, NC, nspin, nx, ny, nz, nt)
+    local_nt = length(times)
+    data = zeros(ComplexF64, NC, nspin, NC, nspin, nx, ny, nz, local_nt)
     residuals = zeros(Float64, NC, nspin)
     solve_seconds = zeros(Float64, NC, nspin)
     # JuliaQCD has no quark-source smearing, so a smeared source is built with
@@ -157,28 +210,36 @@ function HALQCD.juliaqcd_point_propagator(
     # A wall source fills the time slice of source_position[4] with the same
     # color and spin; it is gauge covariant only in a fixed gauge (Coulomb
     # gauge for the HAL QCD wall source), which the caller must impose on U.
+    # On a split field the smeared source is built on the whole lattice on every
+    # process (juliaqcd_links gathers the links) and each process keeps its block.
     links = isnothing(source_smearing) ? nothing : HALQCD.juliaqcd_links(U)
+    local_source = map(-, source_position, layout.start) .+ 1
+    owns_source_time = source_position[4] in ranges[4]
+    owns_source_site = all(source_position[d] in ranges[d] for d in 1:4)
 
     for source_color in 1:NC, source_spin in 1:nspin
-        b = zeros(ComplexF64, NC, nspin, nx, ny, nz, nt)
+        b = zeros(ComplexF64, NC, nspin, layout.local_size...)
         if source_type == :wall
-            b[source_color, source_spin, :, :, :, source_position[4]] .= 1
+            owns_source_time && (b[source_color, source_spin, :, :, :, local_source[4]] .= 1)
         elseif isnothing(source_smearing)
-            b[source_color, source_spin, source_position...] = 1
+            owns_source_site && (b[source_color, source_spin, local_source...] = 1)
         else
-            b[source_color, source_spin, source_position...] = 1
-            b = HALQCD.wuppertal_smear(links, b; source_smearing...)
+            whole = zeros(ComplexF64, NC, nspin, nx, ny, nz, nt)
+            whole[source_color, source_spin, source_position...] = 1
+            b .= view(HALQCD.wuppertal_smear(links, whole; source_smearing...), :, :, ranges...)
         end
-        scale = norm(b)
+        scale = sqrt(_sum_over_processes(layout, sum(abs2, b)))
         b ./= scale
         _set_field!(source, b, mpi)
         clear_fermion!(solution)
         solve_seconds[source_color, source_spin] =
             @elapsed solve_DinvX!(solution, D, source)
         mul!(applied, D, solution)
-        x = _field_array(solution, mpi, NC, dims)
-        residuals[source_color, source_spin] = norm(_field_array(applied, mpi, NC, dims) .- b) / norm(b)
-        if !isnothing(progress)
+        x = _time_slices(layout, _field_array(solution, mpi, NC, dims))
+        # b has norm 1 over the whole lattice
+        residuals[source_color, source_spin] =
+            sqrt(_sum_over_processes(layout, sum(abs2, _field_array(applied, mpi, NC, dims) .- b)))
+        if !isnothing(progress) && layout.root
             println(progress, "solve source_color=", source_color, " source_spin=", source_spin,
                 " seconds=", round(solve_seconds[source_color, source_spin]; digits=1),
                 " residual=", residuals[source_color, source_spin])
@@ -205,10 +266,41 @@ function HALQCD.juliaqcd_point_propagator(
         "external_residuals" => residuals,
         "maximum_external_residual" => maximum(residuals),
         "solve_seconds" => solve_seconds,
+        "local_times" => times,
+        "process_grid" => layout.dims,
+        "mpi_processes" => layout.nprocs,
         "Gaugefields_version" => _package_version(Gaugefields),
         "LatticeDiracOperators_version" => _package_version(LatticeDiracOperators),
     )
     return (data=data, metadata=metadata)
+end
+
+# Contract each source as soon as its propagator is solved, so one propagator
+# is held at a time. `contract(data)` returns the four-point function and the
+# one-hadron correlator on the local time slices; they are placed in arrays of
+# the whole lattice and summed over the processes.
+function _contract_sources(contract, U, source_positions; propagator_kwargs...)
+    nx, ny, nz, nt = U[1].NX, U[1].NY, U[1].NZ, U[1].NT
+    layout = _layout(U, _mpilattice(U))
+    four_points = []
+    one_hadrons = []
+    first_metadata = nothing
+    maximum_residual = 0.0
+    for position in source_positions
+        result = HALQCD.juliaqcd_point_propagator(U; source_position=position, propagator_kwargs...)
+        local_four_point, local_one_hadron = contract(result.data)
+        isnothing(first_metadata) && (first_metadata = result.metadata)
+        maximum_residual = max(maximum_residual, result.metadata["maximum_external_residual"])
+        result = nothing
+        four_point = zeros(eltype(local_four_point), nx, ny, nz, nt)
+        one_hadron = zeros(eltype(local_one_hadron), nt)
+        four_point[:, :, :, layout.times] .= local_four_point
+        one_hadron[layout.times] .= local_one_hadron
+        push!(four_points, _sum_over_processes!(layout, four_point))
+        push!(one_hadrons, _sum_over_processes!(layout, one_hadron))
+    end
+    return (four_points=[four_points...], one_hadrons=[one_hadrons...],
+        metadata=first_metadata, maximum_residual=maximum_residual, nprocs=layout.nprocs)
 end
 
 function HALQCD.juliaqcd_pipi_i2_nbs(
@@ -220,19 +312,11 @@ function HALQCD.juliaqcd_pipi_i2_nbs(
     source_smearing::Union{Nothing,NamedTuple}=nothing,
     kwargs...,
 ) where {NC}
-    results = [
-        HALQCD.juliaqcd_point_propagator(
-            U; κ, BoundaryCondition, source_position=position, source_smearing, kwargs...,
-        )
-        for position in source_positions
-    ]
-    parameters = first(results).metadata["dirac_parameters"]
-    time_boundary = BoundaryCondition[4]
-    temporal_boundary_condition =
-        time_boundary == -1 ? "antiperiodic-quark" :
-        time_boundary == 1 ? "periodic-quark" :
-        time_boundary == 0 ? "dirichlet-quark" :
-        throw(ArgumentError("temporal boundary condition must be 1, -1 or 0"))
+    contracted = _contract_sources(U, source_positions; κ, BoundaryCondition, source_smearing, kwargs...) do data
+        HALQCD.pipi_i2_four_point(data), HALQCD.pion_correlator_point_source(data)
+    end
+    parameters = contracted.metadata["dirac_parameters"]
+    temporal_boundary_condition = _temporal_boundary_name(BoundaryCondition)
     # NBS metadata must be TOML scalars or one-dimensional sequences.
     metadata = (
         gauge_group=string(HALQCD.gauge_group(U)),
@@ -248,21 +332,28 @@ function HALQCD.juliaqcd_pipi_i2_nbs(
         solver_method=string(get(parameters, "method_CG", "LatticeDiracOperators default")),
         solver_squared_residual_threshold=Float64(parameters["eps_CG"]),
         solver_max_steps=Int(parameters["MaxCGstep"]),
-        eps_CG_convention=first(results).metadata["eps_CG_convention"],
-        maximum_external_residual=maximum(
-            result.metadata["maximum_external_residual"] for result in results
-        ),
+        eps_CG_convention=contracted.metadata["eps_CG_convention"],
+        maximum_external_residual=contracted.maximum_residual,
+        mpi_processes=contracted.nprocs,
         Gaugefields_version=_package_version(Gaugefields),
         LatticeDiracOperators_version=_package_version(LatticeDiracOperators),
         julia_version=string(VERSION),
     )
-    return pipi_i2_nbs_dataset(
-        [result.data for result in results],
-        source_positions;
+    return HALQCD._pipi_i2_nbs_dataset(
+        contracted.four_points, contracted.one_hadrons, source_positions,
+        (U[1].NX, U[1].NY, U[1].NZ, U[1].NT), NC, 4;
         sample_id,
         temporal_boundary_condition,
         metadata,
     )
+end
+
+function _temporal_boundary_name(BoundaryCondition)
+    time_boundary = BoundaryCondition[4]
+    return time_boundary == -1 ? "antiperiodic-quark" :
+        time_boundary == 1 ? "periodic-quark" :
+        time_boundary == 0 ? "dirichlet-quark" :
+        throw(ArgumentError("temporal boundary condition must be 1, -1 or 0"))
 end
 
 # γ matrices of LatticeDiracOperators.jl, the basis of its propagators.
@@ -283,20 +374,16 @@ function HALQCD.juliaqcd_two_nucleon_nbs(
     channel::AbstractString="NN",
     kwargs...,
 ) where {NC}
-    results = [
-        HALQCD.juliaqcd_point_propagator(
-            U; κ, BoundaryCondition, source_position=position, source_smearing,
-            source_type, kwargs...,
+    gammas = _ldo_gammas()
+    contracted = _contract_sources(
+        U, source_positions; κ, BoundaryCondition, source_smearing, source_type, kwargs...,
+    ) do data
+        HALQCD._two_nucleon_absolute(
+            data; gammas, source_state, sink_state, color_invariant, nonrelativistic,
         )
-        for position in source_positions
-    ]
-    parameters = first(results).metadata["dirac_parameters"]
-    time_boundary = BoundaryCondition[4]
-    temporal_boundary_condition =
-        time_boundary == -1 ? "antiperiodic-quark" :
-        time_boundary == 1 ? "periodic-quark" :
-        time_boundary == 0 ? "dirichlet-quark" :
-        throw(ArgumentError("temporal boundary condition must be 1, -1 or 0"))
+    end
+    parameters = contracted.metadata["dirac_parameters"]
+    temporal_boundary_condition = _temporal_boundary_name(BoundaryCondition)
     source_kind = source_type == :wall ? "wall" :
         isnothing(source_smearing) ? "point" : "wuppertal"
     metadata = (
@@ -313,24 +400,21 @@ function HALQCD.juliaqcd_two_nucleon_nbs(
         solver_method=string(get(parameters, "method_CG", "LatticeDiracOperators default")),
         solver_squared_residual_threshold=Float64(parameters["eps_CG"]),
         solver_max_steps=Int(parameters["MaxCGstep"]),
-        eps_CG_convention=first(results).metadata["eps_CG_convention"],
-        maximum_external_residual=maximum(
-            result.metadata["maximum_external_residual"] for result in results
-        ),
+        eps_CG_convention=contracted.metadata["eps_CG_convention"],
+        maximum_external_residual=contracted.maximum_residual,
+        mpi_processes=contracted.nprocs,
         gamma_basis="LatticeDiracOperators.Dirac_operators.mk_gamma(1)",
         Gaugefields_version=_package_version(Gaugefields),
         LatticeDiracOperators_version=_package_version(LatticeDiracOperators),
         julia_version=string(VERSION),
     )
-    return two_nucleon_nbs_dataset(
-        [result.data for result in results],
-        source_positions;
-        gammas=_ldo_gammas(),
+    return HALQCD._two_nucleon_nbs_dataset(
+        contracted.four_points, contracted.one_hadrons, source_positions,
+        (U[1].NX, U[1].NY, U[1].NZ, U[1].NT), NC, 4;
         source_state,
         sink_state,
         sample_id,
         temporal_boundary_condition,
-        color_invariant,
         nonrelativistic,
         channel,
         source_kind,

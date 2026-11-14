@@ -43,3 +43,14 @@ jobs:
             Pkg.instantiate()
             Pkg.status()
             include("test/juliaqcd_v1/runtests.jl")'
+      # Same MPI launcher as the CI of LatticeMatrices.jl (mpiexecjl of MPI.jl,
+      # with the MPICH binaries of MPICH_jll), on one runner.
+      - name: Extension tests on 2 and 4 MPI processes
+        run: |
+          julia --project=test/juliaqcd_v1 --startup-file=no -e '
+            using MPI
+            MPI.install_mpiexecjl(destdir=".ci-bin", force=true)'
+          .ci-bin/mpiexecjl --project=test/juliaqcd_v1 -n 2 \
+            julia --project=test/juliaqcd_v1 --startup-file=no test/juliaqcd_v1/mpi_runtests.jl
+          .ci-bin/mpiexecjl --project=test/juliaqcd_v1 -n 4 \
+            julia --project=test/juliaqcd_v1 --startup-file=no test/juliaqcd_v1/mpi_runtests.jl

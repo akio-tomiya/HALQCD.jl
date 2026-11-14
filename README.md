@@ -13,11 +13,15 @@ extensions.
 
 The package is at an early stage and its interface may still change.
 
-HALQCD.jl currently runs on CPUs in a single Julia process, with threads. The
-fields of the JuliaQCD v1 packages (LatticeMatrices.jl MPILattice) are
-accepted only on one process, and the extension copies the propagators into
-host arrays for the contractions. GPU backends of JACC and MPI have not been
-tested.
+HALQCD.jl runs on CPUs with threads, and the JuliaQCD extension also accepts
+fields of the JuliaQCD v1 packages (LatticeMatrices.jl MPILattice) split over
+MPI processes. Any `process_grid` of `Gaugefields.gauge_configuration` is
+accepted, including `:auto`, as in the MPI documentation of Gaugefields.jl.
+The solves run on the split field; after each solve every time slice is
+gathered on one process for the contractions, and every process returns the
+same dataset. The MPI tests compare 2 and 4 processes with one process on a
+single machine. Runs over several machines and the GPU backends of JACC have
+not been tested.
 
 ## Installation
 
@@ -190,6 +194,14 @@ they need Julia 1.11 and the JuliaQCD packages:
 
 ```sh
 julia --project=test/juliaqcd_v1 -e 'using Pkg; Pkg.instantiate(); include("test/juliaqcd_v1/runtests.jl")'
+```
+
+The MPI tests run the same environment on several processes and compare
+several process grids with one process:
+
+```sh
+julia --project=test/juliaqcd_v1 -e 'using MPI; MPI.install_mpiexecjl(destdir=".")'
+./mpiexecjl --project=test/juliaqcd_v1 -n 2 julia --project=test/juliaqcd_v1 test/juliaqcd_v1/mpi_runtests.jl
 ```
 
 ## License

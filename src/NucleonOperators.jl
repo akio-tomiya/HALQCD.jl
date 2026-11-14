@@ -253,19 +253,68 @@ function two_nucleon_nbs_dataset(
         throw(DimensionMismatch("all propagators must have the same shape"))
     ncolor, nspin = _check_point_propagator(first(propagators))
     nx, ny, nz, nt = shape[5:8]
+    absolute = [
+        _two_nucleon_absolute(
+            propagator; gammas, source_state, sink_state, color_invariant, nonrelativistic,
+        )
+        for propagator in propagators
+    ]
+    return _two_nucleon_nbs_dataset(
+        first.(absolute), last.(absolute), source_positions, (nx, ny, nz, nt), ncolor, nspin;
+        source_state, sink_state, sample_id, temporal_boundary_condition, nonrelativistic,
+        channel, source_kind, lattice_spacing, code_commit, metadata,
+    )
+end
+
+# Four-point function and spin-averaged one-nucleon correlator of one source,
+# in absolute sink time, on the time slices of `propagator`.
+function _two_nucleon_absolute(
+    propagator::AbstractArray{<:Number,8};
+    gammas, source_state, sink_state, color_invariant, nonrelativistic,
+)
+    quarks = Dict(:u => propagator, :d => propagator)
+    four_point = two_nucleon_four_point(
+        quarks; gammas, source_state, sink_state, color_invariant, nonrelativistic,
+    )
+    one_hadron = sum(
+        nucleon_two_point(quarks; gammas, spin, color_invariant, nonrelativistic)
+        for spin in 1:2
+    ) ./ 2
+    return four_point, one_hadron
+end
+
+# Dataset from the correlators of `_two_nucleon_absolute` over the whole
+# lattice. The JuliaQCD extension calls it with correlators contracted on the
+# time slices of each MPI process and summed over the processes.
+function _two_nucleon_nbs_dataset(
+    absolute_four_points::AbstractVector{<:AbstractArray{<:Number,4}},
+    absolute_one_hadrons::AbstractVector{<:AbstractVector{<:Number}},
+    source_positions::AbstractVector{<:NTuple{4,Integer}},
+    (nx, ny, nz, nt)::NTuple{4,Int},
+    ncolor::Integer,
+    nspin::Integer;
+    source_state::AbstractMatrix,
+    sink_state::AbstractMatrix=source_state,
+    sample_id::AbstractString,
+    temporal_boundary_condition::AbstractString="antiperiodic-quark",
+    nonrelativistic::Bool=false,
+    channel::AbstractString="NN",
+    source_kind::AbstractString="point",
+    lattice_spacing=(1.0, 1.0, 1.0, 1.0),
+    code_commit::AbstractString=_halqcd_code_commit(),
+    metadata::NamedTuple=(;),
+)
     antiperiodic = temporal_boundary_condition == "antiperiodic-quark"
-    nsource = length(propagators)
+    nsource = length(source_positions)
+    length(absolute_four_points) == length(absolute_one_hadrons) == nsource ||
+        throw(DimensionMismatch("one four-point and one one-hadron correlator are required per source"))
     four_point = zeros(ComplexF64, nx, ny, nz, nt, nsource, 1)
     one_hadron = zeros(ComplexF64, nt, nsource, 1)
-    for (k, (propagator, position)) in enumerate(zip(propagators, source_positions))
-        quarks = Dict(:u => propagator, :d => propagator)
-        absolute_four_point = two_nucleon_four_point(
-            quarks; gammas, source_state, sink_state, color_invariant, nonrelativistic,
-        )
-        absolute_one_hadron = sum(
-            nucleon_two_point(quarks; gammas, spin, color_invariant, nonrelativistic)
-            for spin in 1:2
-        ) ./ 2
+    for (k, position) in enumerate(source_positions)
+        absolute_four_point = absolute_four_points[k]
+        absolute_one_hadron = absolute_one_hadrons[k]
+        size(absolute_four_point) == (nx, ny, nz, nt) && length(absolute_one_hadron) == nt ||
+            throw(DimensionMismatch("correlators must cover the whole lattice"))
         source_time = position[4]
         for τ in 1:nt
             t = mod(source_time + τ - 2, nt) + 1

@@ -232,12 +232,42 @@ function pipi_i2_nbs_dataset(
             throw(BoundsError((nx, ny, nz, nt), position))
     end
 
-    nsource = length(propagators)
+    absolute_four_points = [pipi_i2_four_point(propagator) for propagator in propagators]
+    absolute_one_hadrons = [pion_correlator_point_source(propagator) for propagator in propagators]
+    return _pipi_i2_nbs_dataset(
+        absolute_four_points, absolute_one_hadrons, source_positions,
+        (nx, ny, nz, nt), ncolor, nspin;
+        sample_id, temporal_boundary_condition, lattice_spacing, code_commit, metadata,
+    )
+end
+
+# Dataset from the four-point function (axes x, y, z, t) and the one-pion
+# correlator (axis t) of each source, both in absolute sink time. The JuliaQCD
+# extension calls it with correlators contracted on the time slices of each MPI
+# process and summed over the processes.
+function _pipi_i2_nbs_dataset(
+    absolute_four_points::AbstractVector{<:AbstractArray{<:Real,4}},
+    absolute_one_hadrons::AbstractVector{<:AbstractVector{<:Real}},
+    source_positions::AbstractVector{<:NTuple{4,Integer}},
+    (nx, ny, nz, nt)::NTuple{4,Int},
+    ncolor::Integer,
+    nspin::Integer;
+    sample_id::AbstractString,
+    temporal_boundary_condition::AbstractString="antiperiodic-quark",
+    lattice_spacing=(1.0, 1.0, 1.0, 1.0),
+    code_commit::AbstractString=_halqcd_code_commit(),
+    metadata::NamedTuple=(;),
+)
+    nsource = length(source_positions)
+    length(absolute_four_points) == length(absolute_one_hadrons) == nsource ||
+        throw(DimensionMismatch("one four-point and one one-hadron correlator are required per source"))
     four_point = zeros(Float64, nx, ny, nz, nt, nsource, 1)
     one_hadron = zeros(Float64, nt, nsource, 1)
-    for (k, (propagator, position)) in enumerate(zip(propagators, source_positions))
-        absolute_four_point = pipi_i2_four_point(propagator)
-        absolute_one_hadron = pion_correlator_point_source(propagator)
+    for (k, position) in enumerate(source_positions)
+        absolute_four_point = absolute_four_points[k]
+        absolute_one_hadron = absolute_one_hadrons[k]
+        size(absolute_four_point) == (nx, ny, nz, nt) && length(absolute_one_hadron) == nt ||
+            throw(DimensionMismatch("correlators must cover the whole lattice"))
         source_time = position[4]
         for τ in 1:nt
             t = mod(source_time + τ - 2, nt) + 1
